@@ -1,0 +1,16 @@
+services:
+  dc-analytics:
+    build: .
+    ports:
+      - "47391:47391"
+    environment:
+      - PORT=47391
+      - COLLECT_INTERVAL_MIN=15
+      - DB_PATH=/app/data/analytics.db
+      # - INVITE_CODES=minecraft
+    volumes:
+      - dc_analytics_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  dc_analytics_data:
