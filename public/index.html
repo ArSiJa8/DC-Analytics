@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -112,12 +112,12 @@
         <span>DC-Analytics</span>
       </div>
       <form class="add-form" id="addForm">
-        <input id="inviteInput" type="text" placeholder="Invite-Code oder discord.gg/..." required />
+        <input id="inviteInput" type="text" placeholder="Invite code or discord.gg/..." required />
         <button class="primary" type="submit">
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-          Tracken
+          Track
         </button>
-        <button type="button" id="collectBtn" title="Jetzt alle aktualisieren">
+        <button type="button" id="collectBtn" title="Sync all now">
           <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
           Sync
         </button>
@@ -137,7 +137,7 @@
           <button data-hours="24" class="active">24h</button>
           <button data-hours="168">7d</button>
           <button data-hours="720">30d</button>
-          <button data-hours="0">Alle</button>
+          <button data-hours="0">All</button>
         </div>
       </div>
       <div class="chart-wrap">
@@ -146,12 +146,12 @@
     </div>
 
     <div id="emptyState" class="chart-panel empty" hidden>
-      Noch kein Server getrackt. Füge oben einen öffentlichen Discord Invite-Code (z. B. <code>minecraft</code>) hinzu.
+      No servers tracked. Add a Discord invite code above.
     </div>
   </div>
 
   <script>
-    const fmt = new Intl.NumberFormat("de-DE");
+    const fmt = new Intl.NumberFormat("en-US");
     let servers = [];
     let selectedCode = null;
     let selectedHours = 24;
@@ -205,13 +205,13 @@
                 <div class="server-code">discord.gg/${escapeHtml(s.invite_code)}</div>
               </div>
             </div>
-            <button class="danger" title="Entfernen" data-del="${escapeHtml(s.invite_code)}">
+            <button class="danger" title="Remove" data-del="${escapeHtml(s.invite_code)}">
               <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
             </button>
           </div>
           <div class="metrics">
             <div>
-              <div class="metric-label"><span class="dot total"></span>Gesamt</div>
+              <div class="metric-label"><span class="dot total"></span>Total</div>
               <div class="metric-value">${s.total_members != null ? fmt.format(s.total_members) : "-"}</div>
             </div>
             <div>
@@ -237,12 +237,12 @@
 
       $("chartTitle").textContent = current.name;
       $("lastUpdated").textContent = current.last_updated
-        ? `Letztes Update: ${new Date(current.last_updated).toLocaleString("de-DE")}`
+        ? `Updated ${new Date(current.last_updated).toLocaleString("en-US")}`
         : "";
 
       const rows = await api(`/api/stats/${encodeURIComponent(selectedCode)}?hours=${selectedHours}`);
-      const labels = rows.map((r) => new Date(r.timestamp).toLocaleString("de-DE", {
-        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+      const labels = rows.map((r) => new Date(r.timestamp).toLocaleString("en-US", {
+        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
       }));
 
       if (chart) chart.destroy();
@@ -252,7 +252,7 @@
           labels,
           datasets: [
             {
-              label: "Gesamtmitglieder",
+              label: "Total",
               data: rows.map((r) => r.total_members),
               borderColor: "#5865f2",
               backgroundColor: "rgba(88, 101, 242, 0.12)",
