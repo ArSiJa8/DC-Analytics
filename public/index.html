@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DC-Analytics</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
   <style>
     :root {
       --bg: #0b0e14;
@@ -141,7 +141,7 @@
         </div>
       </div>
       <div class="chart-wrap">
-        <canvas id="statsChart"></canvas>
+        <div id="statsChart"></div>
       </div>
     </div>
 
@@ -241,48 +241,55 @@
         : "";
 
       const rows = await api(`/api/stats/${encodeURIComponent(selectedCode)}?hours=${selectedHours}`);
-      const labels = rows.map((r) => new Date(r.timestamp).toLocaleString("en-US", {
-        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
-      }));
+      const totalData = rows.map((r) => [new Date(r.timestamp).getTime(), r.total_members]);
+      const onlineData = rows.map((r) => [new Date(r.timestamp).getTime(), r.online_members]);
 
       if (chart) chart.destroy();
-      chart = new Chart($("statsChart"), {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Total",
-              data: rows.map((r) => r.total_members),
-              borderColor: "#5865f2",
-              backgroundColor: "rgba(88, 101, 242, 0.12)",
-              tension: 0.25,
-              fill: true,
-              yAxisID: "y",
-            },
-            {
-              label: "Online",
-              data: rows.map((r) => r.online_members),
-              borderColor: "#23a55a",
-              backgroundColor: "rgba(35, 165, 90, 0.12)",
-              tension: 0.25,
-              fill: true,
-              yAxisID: "y1",
-            },
-          ],
+      chart = new ApexCharts($("statsChart"), {
+        chart: {
+          type: "area",
+          height: 340,
+          background: "transparent",
+          fontFamily: "inherit",
+          toolbar: { show: true, tools: { download: false, selection: true, zoom: true, zoomin: true, zoomout: true, pan: true, reset: true } },
+          animations: { enabled: true, speed: 350 },
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: "index", intersect: false },
-          plugins: { legend: { labels: { color: "#e6e9ef" } } },
-          scales: {
-            x: { ticks: { color: "#8b95a7", maxTicksLimit: 8 }, grid: { color: "#1d2332" } },
-            y: { type: "linear", position: "left", ticks: { color: "#8b95a7" }, grid: { color: "#1d2332" } },
-            y1: { type: "linear", position: "right", ticks: { color: "#23a55a" }, grid: { drawOnChartArea: false } },
+        theme: { mode: "dark" },
+        colors: ["#5865f2", "#23a55a"],
+        stroke: { curve: "smooth", width: 2.5 },
+        fill: {
+          type: "gradient",
+          gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02, stops: [0, 95, 100] },
+        },
+        dataLabels: { enabled: false },
+        grid: { borderColor: "#1d2332", strokeDashArray: 4 },
+        series: [
+          { name: "Total", data: totalData },
+          { name: "Online", data: onlineData },
+        ],
+        xaxis: {
+          type: "datetime",
+          labels: { datetimeUTC: false, style: { colors: "#8b95a7" } },
+          axisBorder: { show: false },
+          axisTicks: { show: false },
+        },
+        yaxis: [
+          {
+            labels: { style: { colors: "#8b95a7" }, formatter: (v) => fmt.format(Math.round(v)) },
           },
+          {
+            opposite: true,
+            labels: { style: { colors: "#23a55a" }, formatter: (v) => fmt.format(Math.round(v)) },
+          },
+        ],
+        tooltip: {
+          theme: "dark",
+          x: { format: "MMM dd, HH:mm" },
+          y: { formatter: (v) => fmt.format(v) },
         },
+        legend: { position: "top", horizontalAlign: "left", labels: { colors: "#e6e9ef" } },
       });
+      chart.render();
     }
 
     function escapeHtml(str) {

@@ -1,6 +1,6 @@
 # DC-Analytics
 
-Discord member & online tracker using public invite counts, SQLite, Bun, and Chart.js.
+Discord member & online tracker using public invite counts, SQLite, Bun, and ApexCharts.
 
 ## Run
 
