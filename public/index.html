@@ -99,7 +99,8 @@
     }
     .range-group { display: flex; gap: 6px; }
     .range-group button.active { background: var(--accent); border-color: var(--accent); }
-    .chart-wrap { position: relative; height: 340px; }
+    .chart-wrap { position: relative; height: clamp(280px, 50vh, 640px); }
+    #statsChart { height: 100%; }
     .empty { text-align: center; color: var(--muted); padding: 48px 16px; }
     .error-msg { color: #f87171; font-size: 0.85rem; }
   </style>
@@ -248,7 +249,7 @@
       chart = new ApexCharts($("statsChart"), {
         chart: {
           type: "area",
-          height: 340,
+          height: "100%",
           background: "transparent",
           fontFamily: "inherit",
           toolbar: { show: true, tools: { download: false, selection: true, zoom: true, zoomin: true, zoomout: true, pan: true, reset: true } },
@@ -273,15 +274,10 @@
           axisBorder: { show: false },
           axisTicks: { show: false },
         },
-        yaxis: [
-          {
-            labels: { style: { colors: "#8b95a7" }, formatter: (v) => fmt.format(Math.round(v)) },
-          },
-          {
-            opposite: true,
-            labels: { style: { colors: "#23a55a" }, formatter: (v) => fmt.format(Math.round(v)) },
-          },
-        ],
+        yaxis: {
+          min: 0,
+          labels: { style: { colors: "#8b95a7" }, formatter: (v) => fmt.format(Math.round(v)) },
+        },
         tooltip: {
           theme: "dark",
           x: { format: "MMM dd, HH:mm" },
