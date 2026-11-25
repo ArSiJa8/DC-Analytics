@@ -103,6 +103,9 @@
     #statsChart { height: 100%; }
     .empty { text-align: center; color: var(--muted); padding: 48px 16px; }
     .error-msg { color: #f87171; font-size: 0.85rem; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { animation: spin 0.8s linear infinite; }
   </style>
 </head>
 <body>
@@ -112,17 +115,32 @@
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
         <span>DC-Analytics</span>
       </div>
-      <form class="add-form" id="addForm">
-        <input id="inviteInput" type="text" placeholder="Invite code or discord.gg/..." required />
-        <button class="primary" type="submit">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-          Track
+      <div class="actions">
+        <form class="add-form" id="authForm" hidden>
+          <input id="passwordInput" type="password" placeholder="Admin password" required />
+          <button class="primary" type="submit">Unlock</button>
+          <button type="button" id="cancelAuthBtn">Cancel</button>
+        </form>
+        <button type="button" id="unlockBtn">
+          <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Unlock
         </button>
-        <button type="button" id="collectBtn" title="Sync all now">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        <form class="add-form" id="addForm" hidden>
+          <input id="inviteInput" type="text" placeholder="Invite code or discord.gg/..." required />
+          <button class="primary" type="submit">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            Track
+          </button>
+        </form>
+        <button type="button" id="collectBtn" title="Sync all now" hidden>
+          <svg class="icon" id="syncIcon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
           Sync
         </button>
-      </form>
+        <button type="button" id="lockBtn" title="Lock" hidden>
+          <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+          Lock
+        </button>
+      </div>
     </header>
 
     <div id="errorBox" class="error-msg" hidden></div>
@@ -157,6 +175,7 @@
     let selectedCode = null;
     let selectedHours = 24;
     let chart = null;
+    let isAuthenticated = false;
 
     const $ = (id) => document.getElementById(id);
 
@@ -170,6 +189,21 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Request failed");
       return data;
+    }
+
+    function updateAuthUI() {
+      $("unlockBtn").hidden = isAuthenticated;
+      $("authForm").hidden = true;
+      $("addForm").hidden = !isAuthenticated;
+      $("collectBtn").hidden = !isAuthenticated;
+      $("lockBtn").hidden = !isAuthenticated;
+      renderServers();
+    }
+
+    async function loadAuth() {
+      const auth = await api("/api/auth");
+      isAuthenticated = auth.authenticated;
+      updateAuthUI();
     }
 
     async function loadServers() {
@@ -206,9 +240,9 @@
                 <div class="server-code">discord.gg/${escapeHtml(s.invite_code)}</div>
               </div>
             </div>
-            <button class="danger" title="Remove" data-del="${escapeHtml(s.invite_code)}">
+            ${isAuthenticated ? `<button class="danger" title="Remove" data-del="${escapeHtml(s.invite_code)}">
               <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-            </button>
+            </button>` : ""}
           </div>
           <div class="metrics">
             <div>
@@ -222,11 +256,18 @@
           </div>
         `;
 
-        card.querySelector("[data-del]").onclick = async (e) => {
-          e.stopPropagation();
-          await api(`/api/servers/${encodeURIComponent(s.invite_code)}`, { method: "DELETE" });
-          await loadServers();
-        };
+        const delBtn = card.querySelector("[data-del]");
+        if (delBtn) {
+          delBtn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              await api(`/api/servers/${encodeURIComponent(s.invite_code)}`, { method: "DELETE" });
+              await loadServers();
+            } catch (err) {
+              showError(err.message);
+            }
+          };
+        }
 
         grid.appendChild(card);
       }
@@ -292,6 +333,40 @@
       return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
+    $("unlockBtn").onclick = () => {
+      $("unlockBtn").hidden = true;
+      $("authForm").hidden = false;
+      $("passwordInput").focus();
+    };
+
+    $("cancelAuthBtn").onclick = () => {
+      $("passwordInput").value = "";
+      updateAuthUI();
+    };
+
+    $("authForm").onsubmit = async (e) => {
+      e.preventDefault();
+      showError("");
+      try {
+        await api("/api/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: $("passwordInput").value }),
+        });
+        $("passwordInput").value = "";
+        isAuthenticated = true;
+        updateAuthUI();
+      } catch (err) {
+        showError(err.message);
+      }
+    };
+
+    $("lockBtn").onclick = async () => {
+      await api("/api/auth", { method: "DELETE" });
+      isAuthenticated = false;
+      updateAuthUI();
+    };
+
     $("addForm").onsubmit = async (e) => {
       e.preventDefault();
       showError("");
@@ -313,13 +388,16 @@
     $("collectBtn").onclick = async () => {
       showError("");
       $("collectBtn").disabled = true;
+      $("syncIcon").classList.add("spinning");
       try {
-        await api("/api/collect", { method: "POST" });
+        const res = await api("/api/collect", { method: "POST" });
+        if (res.errors?.length) showError(res.errors.join(", "));
         await loadServers();
       } catch (err) {
         showError(err.message);
       } finally {
         $("collectBtn").disabled = false;
+        $("syncIcon").classList.remove("spinning");
       }
     };
 
@@ -333,7 +411,7 @@
       loadChart();
     };
 
-    loadServers();
+    loadAuth().then(loadServers);
     setInterval(loadServers, 60_000);
   </script>
 </body>

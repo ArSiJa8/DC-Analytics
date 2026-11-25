@@ -1,9 +1,13 @@
 import { Database } from "bun:sqlite";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 
 const PORT = Number(process.env.PORT ?? 47391);
 const INTERVAL_MIN = Math.max(5, Number(process.env.COLLECT_INTERVAL_MIN ?? 15));
 const DB_PATH = process.env.DB_PATH ?? "./data/analytics.db";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const SESSION_SECRET = process.env.SESSION_SECRET || randomBytes(32).toString("hex");
+const COOKIE_NAME = "dc_auth";
 
 mkdirSync(DB_PATH.substring(0, DB_PATH.lastIndexOf("/")) || "./data", { recursive: true });
 
@@ -35,7 +39,9 @@ export function extractInviteCode(input: string): string {
 }
 
 async function fetchDiscordInvite(code: string) {
-  const res = await fetch(`https://discord.com/api/v10/invites/${encodeURIComponent(code)}?with_counts=true`);
+  const res = await fetch(`https://discord.com/api/v10/invites/${encodeURIComponent(code)}?with_counts=true`, {
+    headers: { "User-Agent": "DC-Analytics/1.0" },
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message ?? `Discord API error (${res.status})`);
@@ -81,14 +87,17 @@ async function collectOne(code: string) {
 async function collectAll() {
   const rows = db.query("SELECT invite_code FROM servers").all() as { invite_code: string }[];
   const results = [];
+  const errors: string[] = [];
   for (const { invite_code } of rows) {
     try {
       results.push(await collectOne(invite_code));
     } catch (err) {
-      console.error(`[collector] Failed for ${invite_code}:`, err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[collector] Failed for ${invite_code}:`, msg);
+      errors.push(`${invite_code}: ${msg}`);
     }
   }
-  return results;
+  return { results, errors };
 }
 
 // Seed optional INVITE_CODES env var on startup (comma-separated)
@@ -105,11 +114,49 @@ setInterval(() => {
   collectAll().catch((err) => console.error("[scheduler] Error:", err));
 }, INTERVAL_MIN * 60 * 1000);
 
-const json = (data: unknown, status = 200) =>
+const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
+
+function signToken(exp: number): string {
+  const payload = String(exp);
+  const sig = createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  return `${payload}.${sig}`;
+}
+
+function verifyToken(token: string | undefined): boolean {
+  if (!token || !ADMIN_PASSWORD) return false;
+  const [payload, sig] = token.split(".");
+  if (!payload || !sig || Number(payload) < Date.now()) return false;
+  const expected = createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function getCookie(req: Request, name: string): string | undefined {
+  const header = req.headers.get("cookie") ?? "";
+  for (const part of header.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return decodeURIComponent(v.join("="));
+  }
+  return undefined;
+}
+
+function verifyPassword(input: string): boolean {
+  if (!ADMIN_PASSWORD) return false;
+  const a = createHmac("sha256", SESSION_SECRET).update(input).digest();
+  const b = createHmac("sha256", SESSION_SECRET).update(ADMIN_PASSWORD).digest();
+  return timingSafeEqual(a, b);
+}
+
+function requireAuth(req: Request): Response | null {
+  if (!ADMIN_PASSWORD) return json({ error: "ADMIN_PASSWORD not set in .env" }, 503);
+  if (!verifyToken(getCookie(req, COOKIE_NAME))) return json({ error: "Unauthorized" }, 401);
+  return null;
+}
 
 const server = Bun.serve({
   port: PORT,
@@ -121,6 +168,36 @@ const server = Bun.serve({
       return new Response(Bun.file("./public/index.html"), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
+    }
+
+    if (pathname === "/api/auth" && req.method === "GET") {
+      return json({
+        configured: Boolean(ADMIN_PASSWORD),
+        authenticated: verifyToken(getCookie(req, COOKIE_NAME)),
+      });
+    }
+
+    if (pathname === "/api/auth" && req.method === "POST") {
+      if (!ADMIN_PASSWORD) return json({ error: "ADMIN_PASSWORD not set in .env" }, 503);
+      const body = await req.json().catch(() => ({}));
+      if (!verifyPassword(String(body.password ?? ""))) {
+        return json({ error: "Invalid password" }, 401);
+      }
+      const maxAge = 60 * 60 * 24 * 7;
+      const token = signToken(Date.now() + maxAge * 1000);
+      return json(
+        { authenticated: true },
+        200,
+        { "Set-Cookie": `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}` }
+      );
+    }
+
+    if (pathname === "/api/auth" && req.method === "DELETE") {
+      return json(
+        { authenticated: false },
+        200,
+        { "Set-Cookie": `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0` }
+      );
     }
 
     if (pathname === "/api/servers" && req.method === "GET") {
@@ -136,6 +213,8 @@ const server = Bun.serve({
     }
 
     if (pathname === "/api/servers" && req.method === "POST") {
+      const denied = requireAuth(req);
+      if (denied) return denied;
       try {
         const body = await req.json();
         const code = extractInviteCode(String(body.invite ?? ""));
@@ -148,6 +227,8 @@ const server = Bun.serve({
     }
 
     if (pathname.startsWith("/api/servers/") && req.method === "DELETE") {
+      const denied = requireAuth(req);
+      if (denied) return denied;
       const code = decodeURIComponent(pathname.slice("/api/servers/".length));
       db.query("DELETE FROM snapshots WHERE invite_code = ?").run(code);
       db.query("DELETE FROM servers WHERE invite_code = ?").run(code);
@@ -174,8 +255,13 @@ const server = Bun.serve({
     }
 
     if (pathname === "/api/collect" && req.method === "POST") {
-      const results = await collectAll();
-      return json({ collected: results.length, results });
+      const denied = requireAuth(req);
+      if (denied) return denied;
+      const { results, errors } = await collectAll();
+      if (results.length === 0 && errors.length > 0) {
+        return json({ error: errors[0], errors }, 502);
+      }
+      return json({ collected: results.length, results, errors });
     }
 
     return json({ error: "Not found" }, 404);
